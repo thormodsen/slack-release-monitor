@@ -49,7 +49,7 @@ OPTIONS:
 
 ENVIRONMENT VARIABLES:
   SLACK_TOKEN       Slack Bot OAuth token (not required for --weekly-summary)
-  ANTHROPIC_API_KEY Anthropic API key
+  OPENROUTER_API_KEY OpenRouter API key
   SLACK_CHANNEL_ID  Slack channel ID to monitor (not required for --weekly-summary)
 
 BEHAVIOR:
@@ -87,9 +87,9 @@ function calculateTimeWindow(start?: string, days?: number): { oldest?: number; 
 
 async function runWeeklySummary(options: CliOptions): Promise<void> {
   log('Loading API key...', options.verbose);
-  const apiKey = process.env.ANTHROPIC_API_KEY;
+  const apiKey = process.env.OPENROUTER_API_KEY;
   if (!apiKey) {
-    throw new Error('ANTHROPIC_API_KEY environment variable is required');
+    throw new Error('OPENROUTER_API_KEY environment variable is required');
   }
 
   log('Generating weekly summary...', options.verbose);
@@ -129,8 +129,8 @@ async function run(options: CliOptions): Promise<void> {
     return;
   }
 
-  log('Extracting releases with Claude...', options.verbose);
-  const extractor = new ReleaseExtractor(config.anthropicApiKey);
+  log('Extracting releases with Claude via OpenRouter...', options.verbose);
+  const extractor = new ReleaseExtractor(config.openRouterApiKey);
   const releases = await extractor.extractReleases(messagesToProcess);
   log(`Extracted ${releases.length} releases`, options.verbose);
 

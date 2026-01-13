@@ -1,4 +1,3 @@
-import Anthropic from '@anthropic-ai/sdk';
 import type { SlackMessage } from './slack-client.js';
 
 export interface Release {
@@ -30,10 +29,12 @@ Example output:
 Only output valid JSON, nothing else.`;
 
 export class ReleaseExtractor {
-  private client: Anthropic;
+  private apiKey: string;
+  private readonly apiUrl = 'https://openrouter.ai/api/v1/chat/completions';
+  private readonly model = 'anthropic/claude-sonnet-4';
 
   constructor(apiKey: string) {
-    this.client = new Anthropic({ apiKey });
+    this.apiKey = apiKey;
   }
 
   async extractReleases(messages: SlackMessage[]): Promise<Release[]> {
@@ -48,24 +49,40 @@ export class ReleaseExtractor {
       })
       .join('\n\n');
 
-    const response = await this.client.messages.create({
-      model: 'claude-sonnet-4-20250514',
-      max_tokens: 4096,
-      messages: [
-        {
-          role: 'user',
-          content: `${EXTRACTION_PROMPT}\n\nMessages to analyze:\n\n${formattedMessages}`,
-        },
-      ],
+    const response = await fetch(this.apiUrl, {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${this.apiKey}`,
+        'Content-Type': 'application/json',
+        'HTTP-Referer': 'https://github.com/thormodsen/changelog-creator',
+        'X-Title': 'Slack Release Monitor',
+      },
+      body: JSON.stringify({
+        model: this.model,
+        max_tokens: 4096,
+        messages: [
+          {
+            role: 'user',
+            content: `${EXTRACTION_PROMPT}\n\nMessages to analyze:\n\n${formattedMessages}`,
+          },
+        ],
+      }),
     });
 
-    const textContent = response.content.find((block) => block.type === 'text');
-    if (!textContent || textContent.type !== 'text') {
+    if (!response.ok) {
+      const errorText = await response.text().catch(() => 'Unknown error');
+      throw new Error(`OpenRouter API error: ${response.status} ${response.statusText} - ${errorText}`);
+    }
+
+    const data = await response.json();
+    const textContent = data.choices?.[0]?.message?.content;
+
+    if (!textContent) {
       return [];
     }
 
     try {
-      const releases = JSON.parse(textContent.text) as Release[];
+      const releases = JSON.parse(textContent) as Release[];
       return Array.isArray(releases) ? releases : [];
     } catch {
       return [];

@@ -1,5 +1,4 @@
 import { readFile, writeFile, access } from 'node:fs/promises';
-import Anthropic from '@anthropic-ai/sdk';
 
 interface ParsedRelease {
   date: string;
@@ -19,11 +18,13 @@ Keep the tone professional but readable. Use markdown formatting.
 Only output the summary, nothing else.`;
 
 export class WeeklySummarizer {
-  private client: Anthropic;
+  private apiKey: string;
   private releasesPath: string;
+  private readonly apiUrl = 'https://openrouter.ai/api/v1/chat/completions';
+  private readonly model = 'anthropic/claude-sonnet-4';
 
   constructor(apiKey: string, releasesPath: string = 'releases.md') {
-    this.client = new Anthropic({ apiKey });
+    this.apiKey = apiKey;
     this.releasesPath = releasesPath;
   }
 
@@ -109,22 +110,38 @@ export class WeeklySummarizer {
       .map((r) => `## ${r.date} - ${r.title}\n\n${r.description}`)
       .join('\n\n');
 
-    const response = await this.client.messages.create({
-      model: 'claude-sonnet-4-20250514',
-      max_tokens: 2048,
-      messages: [
-        {
-          role: 'user',
-          content: `${SUMMARY_PROMPT}\n\nReleases from the last 7 days:\n\n${formattedReleases}`,
-        },
-      ],
+    const response = await fetch(this.apiUrl, {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${this.apiKey}`,
+        'Content-Type': 'application/json',
+        'HTTP-Referer': 'https://github.com/thormodsen/changelog-creator',
+        'X-Title': 'Slack Release Monitor',
+      },
+      body: JSON.stringify({
+        model: this.model,
+        max_tokens: 2048,
+        messages: [
+          {
+            role: 'user',
+            content: `${SUMMARY_PROMPT}\n\nReleases from the last 7 days:\n\n${formattedReleases}`,
+          },
+        ],
+      }),
     });
 
-    const textContent = response.content.find((block) => block.type === 'text');
-    if (!textContent || textContent.type !== 'text') {
+    if (!response.ok) {
+      const errorText = await response.text().catch(() => 'Unknown error');
+      throw new Error(`OpenRouter API error: ${response.status} ${response.statusText} - ${errorText}`);
+    }
+
+    const data = await response.json();
+    const textContent = data.choices?.[0]?.message?.content;
+
+    if (!textContent) {
       return this.formatEmptySummary();
     }
 
-    return `# Weekly Summary\n\n${textContent.text}`;
+    return `# Weekly Summary\n\n${textContent}`;
   }
 }

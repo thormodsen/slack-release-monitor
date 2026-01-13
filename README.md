@@ -1,6 +1,6 @@
 # slack-release-monitor
 
-CLI tool that monitors a Slack channel for release announcements, uses Claude to extract structured release info, and maintains a markdown changelog.
+CLI tool that monitors a Slack channel for release announcements, uses OpenRouter (Claude) to extract structured release info, and maintains a markdown changelog.
 
 ## Setup
 
@@ -11,7 +11,8 @@ npm run build
 
 Copy `.env.example` to `.env` and fill in:
 - `SLACK_TOKEN` - Bot token with `channels:history`, `channels:read` scopes
-- `ANTHROPIC_API_KEY` - Your Anthropic API key
+- `OPENROUTER_API_KEY` - Your OpenRouter API key (get one at https://openrouter.ai)
+- `SLACK_WORKSPACE` - Your Slack workspace name (e.g., "myworkspace" for myworkspace.slack.com)
 - `SLACK_CHANNEL_ID` - Channel to monitor
 
 ## Usage
@@ -34,11 +35,11 @@ node dist/index.js --days 7 --verbose
 
 1. Fetches messages from the configured Slack channel
 2. Filters out already-processed messages (tracked in `.release-monitor-state.json`)
-3. Sends messages to Claude to extract release/deployment info
-4. Appends extracted releases to `releases.md`
+3. Sends messages to OpenRouter (Claude) to extract release/deployment info
+4. Appends extracted releases to `releases.html`
 5. Updates state file to avoid reprocessing
 
 ## Output
 
-- `releases.md` - Running log of extracted releases
-- `weekly-summary-YYYY-MM-DD.md` - Generated weekly digests
+- `releases.html` - Running log of extracted releases (HTML format)
+- `weekly-summary-YYYY-MM-DD.md` - Generated weekly digests (reads from `releases.md` if present)

@@ -18,6 +18,7 @@ releases.md
 # IDE
 .idea/
 .vscode/
+.claude/
 *.swp
 *.swo
 
