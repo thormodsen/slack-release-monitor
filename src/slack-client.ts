@@ -16,7 +16,7 @@ export class SlackClient {
     this.channelId = channelId;
   }
 
-  async fetchMessages(): Promise<SlackMessage[]> {
+  async fetchMessages(oldest?: number, latest?: number): Promise<SlackMessage[]> {
     const messages: SlackMessage[] = [];
     let cursor: string | undefined;
 
@@ -25,6 +25,8 @@ export class SlackClient {
         channel: this.channelId,
         cursor,
         limit: 200,
+        oldest: oldest ? String(oldest / 1000) : undefined,
+        latest: latest ? String(latest / 1000) : undefined,
       });
 
       if (!response.ok) {

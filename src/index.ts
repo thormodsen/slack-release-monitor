@@ -11,13 +11,22 @@ interface CliOptions {
   help: boolean;
   verbose: boolean;
   weeklySummary: boolean;
+  days?: number;
+  start?: string;
 }
 
 function parseArgs(args: string[]): CliOptions {
+  const daysIndex = args.indexOf('--days');
+  const days = daysIndex !== -1 ? parseInt(args[daysIndex + 1], 10) : undefined;
+  const startIndex = args.indexOf('--start');
+  const start = startIndex !== -1 ? args[startIndex + 1] : undefined;
+
   return {
     help: args.includes('--help') || args.includes('-h'),
     verbose: args.includes('--verbose') || args.includes('-v'),
     weeklySummary: args.includes('--weekly-summary'),
+    days: days && !isNaN(days) ? days : undefined,
+    start,
   };
 }
 
@@ -31,6 +40,8 @@ USAGE:
 OPTIONS:
   --help, -h        Print this help message
   --verbose, -v     Enable debug logging to stderr
+  --start DATE      Start date (YYYY-MM-DD). Defaults to now if only --days is set
+  --days N          Number of days to fetch (required with --start, or standalone for last N days)
   --weekly-summary  Generate a weekly summary instead of fetching new messages
 
 ENVIRONMENT VARIABLES:
@@ -52,6 +63,23 @@ function log(message: string, verbose: boolean): void {
   if (verbose) {
     console.error(`[DEBUG] ${message}`);
   }
+}
+
+function calculateTimeWindow(start?: string, days?: number): { oldest?: number; latest?: number } {
+  const msPerDay = 24 * 60 * 60 * 1000;
+
+  if (start && days) {
+    const oldest = new Date(start).getTime();
+    const latest = oldest + days * msPerDay;
+    return { oldest, latest };
+  }
+
+  if (days) {
+    const oldest = Date.now() - days * msPerDay;
+    return { oldest, latest: undefined };
+  }
+
+  return { oldest: undefined, latest: undefined };
 }
 
 async function runWeeklySummary(options: CliOptions): Promise<void> {
@@ -80,8 +108,11 @@ async function run(options: CliOptions): Promise<void> {
   const stateManager = new StateManager();
   await stateManager.load();
 
+  const { oldest, latest } = calculateTimeWindow(options.start, options.days);
+  log(`Time window: ${oldest ? new Date(oldest).toISOString() : 'beginning'} to ${latest ? new Date(latest).toISOString() : 'now'}`, options.verbose);
+
   log('Fetching messages from Slack...', options.verbose);
-  const allMessages = await slackClient.fetchMessages();
+  const allMessages = await slackClient.fetchMessages(oldest, latest);
   log(`Fetched ${allMessages.length} messages`, options.verbose);
 
   const unprocessedMessages = stateManager.getUnprocessedMessages(allMessages);
