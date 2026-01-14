@@ -160,14 +160,16 @@ async function run(options: CliOptions): Promise<void> {
 
   log('Extracting releases with Claude via OpenRouter...', options.verbose);
   const extractor = new ReleaseExtractor(config.openRouterApiKey, langfuse, options.verbose);
-  const releases = await extractor.extractReleases(messagesToProcess);
+  const writer = new ReportWriter(config.slackWorkspace, config.slackChannelId);
+  let lastWrittenCount = 0;
+  const releases = await extractor.extractReleases(messagesToProcess, async ({ releases: current }) => {
+    if (current.length > 0 && current.length !== lastWrittenCount) {
+      log('Writing releases to HTML...', options.verbose);
+      await writer.writeReleases(current);
+      lastWrittenCount = current.length;
+    }
+  });
   log(`Extracted ${releases.length} releases`, options.verbose);
-
-  if (releases.length > 0) {
-    log('Writing releases to HTML...', options.verbose);
-    const writer = new ReportWriter(config.slackWorkspace, config.slackChannelId);
-    await writer.writeReleases(releases);
-  }
 
   if (!options.fresh) {
     log('Updating state...', options.verbose);
