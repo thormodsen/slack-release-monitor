@@ -7,16 +7,6 @@ interface ParsedRelease {
   description: string;
 }
 
-const DEFAULT_SUMMARY_PROMPT = `You are summarizing a week of software releases for a team digest.
-
-Given the following releases, create a concise summary that includes:
-1. Key Highlights: The most significant releases or changes (2-4 bullet points)
-2. Common Themes: Patterns or areas of focus this week
-3. Total Release Count: The number of releases
-
-Keep the tone professional but readable. Use markdown formatting.
-
-Only output the summary, nothing else.`;
 
 interface OpenRouterConfig {
   model?: string;
@@ -119,35 +109,45 @@ export class WeeklySummarizer {
   private async summarizeWithClaude(
     releases: ParsedRelease[]
   ): Promise<string> {
-    // Try to fetch prompt and config from Langfuse, fallback to default
-    let prompt = DEFAULT_SUMMARY_PROMPT;
+    // Fetch prompt and config from Langfuse - fail if Langfuse is enabled but prompt is unavailable
+    let prompt: string;
     let config: OpenRouterConfig = {};
 
     if (this.langfuse?.isEnabled()) {
       const langfuseResult = await this.langfuse.getPromptWithConfig('weekly-summary');
-      if (langfuseResult) {
-        prompt = langfuseResult.prompt;
-        
-        // Extract config values
-        if (langfuseResult.config.model) {
-          config.model = String(langfuseResult.config.model);
-        }
-        if (langfuseResult.config.max_tokens) {
-          config.max_tokens = Number(langfuseResult.config.max_tokens);
-        }
-        if (langfuseResult.config.temperature !== undefined) {
-          config.temperature = Number(langfuseResult.config.temperature);
-        }
-        if (langfuseResult.config.top_p !== undefined) {
-          config.top_p = Number(langfuseResult.config.top_p);
-        }
-        if (langfuseResult.config.httpReferer) {
-          config.httpReferer = String(langfuseResult.config.httpReferer);
-        }
-        if (langfuseResult.config.xTitle) {
-          config.xTitle = String(langfuseResult.config.xTitle);
-        }
+      if (!langfuseResult) {
+        throw new Error(
+          'Langfuse is enabled but prompt "weekly-summary" was not found. ' +
+          'Please create the prompt in Langfuse or disable Langfuse in your configuration.'
+        );
       }
+
+      prompt = langfuseResult.prompt;
+      
+      // Extract config values
+      if (langfuseResult.config.model) {
+        config.model = String(langfuseResult.config.model);
+      }
+      if (langfuseResult.config.max_tokens) {
+        config.max_tokens = Number(langfuseResult.config.max_tokens);
+      }
+      if (langfuseResult.config.temperature !== undefined) {
+        config.temperature = Number(langfuseResult.config.temperature);
+      }
+      if (langfuseResult.config.top_p !== undefined) {
+        config.top_p = Number(langfuseResult.config.top_p);
+      }
+      if (langfuseResult.config.httpReferer) {
+        config.httpReferer = String(langfuseResult.config.httpReferer);
+      }
+      if (langfuseResult.config.xTitle) {
+        config.xTitle = String(langfuseResult.config.xTitle);
+      }
+    } else {
+      throw new Error(
+        'Langfuse is required for weekly summary generation. ' +
+        'Please configure Langfuse in your settings or enable it in your configuration.'
+      );
     }
 
     const formattedReleases = releases

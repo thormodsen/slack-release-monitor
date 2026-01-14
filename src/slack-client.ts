@@ -5,6 +5,10 @@ export interface SlackMessage {
   text: string;
   timestamp: string;
   userId: string;
+  username?: string;
+  appId?: string;
+  botId?: string;
+  subtype?: string;
 }
 
 export class SlackClient {
@@ -35,11 +39,37 @@ export class SlackClient {
 
       for (const msg of response.messages ?? []) {
         if (msg.ts && msg.text) {
+          // Filter out messages from bitrise or automated release notes
+          const text = msg.text.toLowerCase();
+          const username = msg.username?.toLowerCase() || '';
+          const appId = msg.app_id || '';
+          const botId = msg.bot_id || '';
+          
+          // Check if message should be filtered
+          const isBitrise = username.includes('bitrise') || 
+                           text.includes('bitrise') ||
+                           appId.includes('bitrise') ||
+                           botId.includes('bitrise');
+          
+          const isAutomatedReleaseNotes = username.includes('automated release notes') ||
+                                         username.includes('automated-release-notes') ||
+                                         text.includes('automated release notes') ||
+                                         appId.includes('automated-release-notes') ||
+                                         botId.includes('automated-release-notes');
+          
+          if (isBitrise || isAutomatedReleaseNotes) {
+            continue;
+          }
+
           messages.push({
             id: msg.ts,
             text: msg.text,
             timestamp: msg.ts,
             userId: msg.user ?? '',
+            username: msg.username,
+            appId: msg.app_id,
+            botId: msg.bot_id,
+            subtype: msg.subtype,
           });
         }
       }

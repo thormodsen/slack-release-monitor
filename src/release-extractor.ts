@@ -6,28 +6,10 @@ export interface Release {
   title: string;
   description: string;
   sourceMessageId: string;
+  whyThisMatters?: string;
+  impact?: string;
 }
 
-const DEFAULT_EXTRACTION_PROMPT = `You are analyzing Slack messages to extract release information.
-
-Identify any messages that mention:
-- Software releases or version updates
-- Deployments to production or staging
-- Shipped features or functionality
-- Hotfixes or bug fixes that were deployed
-
-For each release found, extract:
-- date: The date in YYYY-MM-DD format (use the date shown in brackets, e.g. [2025-12-01])
-- title: A brief title for the release
-- description: A summary of what was released/changed
-- sourceMessageId: The ID of the message containing this release
-
-Respond with a JSON array. If no releases are found, respond with an empty array [].
-
-Example output:
-[{"date":"2024-01-15","title":"v2.1.0 Release","description":"Added user authentication and fixed login bug","sourceMessageId":"1705312800.000100"}]
-
-Only output valid JSON, nothing else.`;
 
 interface OpenRouterConfig {
   model?: string;
@@ -58,52 +40,54 @@ export class ReleaseExtractor {
       return [];
     }
 
-    // Try to fetch prompt and config from Langfuse, fallback to default
-    let prompt = DEFAULT_EXTRACTION_PROMPT;
-    let promptSource = 'default';
+    // Fetch prompt and config from Langfuse - fail if Langfuse is enabled but prompt is unavailable
+    let prompt: string;
+    let promptSource: string;
     let config: OpenRouterConfig = {};
 
     if (this.langfuse?.isEnabled()) {
       const langfuseResult = await this.langfuse.getPromptWithConfig('release-extraction');
-      if (langfuseResult) {
-        prompt = langfuseResult.prompt;
-        promptSource = 'Langfuse';
-        
-        // Extract config values
-        if (langfuseResult.config.model) {
-          config.model = String(langfuseResult.config.model);
-        }
-        if (langfuseResult.config.max_tokens) {
-          config.max_tokens = Number(langfuseResult.config.max_tokens);
-        }
-        if (langfuseResult.config.temperature !== undefined) {
-          config.temperature = Number(langfuseResult.config.temperature);
-        }
-        if (langfuseResult.config.top_p !== undefined) {
-          config.top_p = Number(langfuseResult.config.top_p);
-        }
-        if (langfuseResult.config.httpReferer) {
-          config.httpReferer = String(langfuseResult.config.httpReferer);
-        }
-        if (langfuseResult.config.xTitle) {
-          config.xTitle = String(langfuseResult.config.xTitle);
-        }
+      if (!langfuseResult) {
+        throw new Error(
+          'Langfuse is enabled but prompt "release-extraction" was not found. ' +
+          'Please create the prompt in Langfuse or disable Langfuse in your configuration.'
+        );
+      }
 
-        if (this.verbose) {
-          console.error(`[DEBUG] Using prompt from Langfuse (length: ${prompt.length} chars)`);
-          if (Object.keys(config).length > 0) {
-            console.error(`[DEBUG] Using config from Langfuse:`, config);
-          }
-        }
-      } else {
-        if (this.verbose) {
-          console.error(`[DEBUG] Langfuse prompt "release-extraction" not found, using default prompt`);
+      prompt = langfuseResult.prompt;
+      promptSource = 'Langfuse';
+      
+      // Extract config values
+      if (langfuseResult.config.model) {
+        config.model = String(langfuseResult.config.model);
+      }
+      if (langfuseResult.config.max_tokens) {
+        config.max_tokens = Number(langfuseResult.config.max_tokens);
+      }
+      if (langfuseResult.config.temperature !== undefined) {
+        config.temperature = Number(langfuseResult.config.temperature);
+      }
+      if (langfuseResult.config.top_p !== undefined) {
+        config.top_p = Number(langfuseResult.config.top_p);
+      }
+      if (langfuseResult.config.httpReferer) {
+        config.httpReferer = String(langfuseResult.config.httpReferer);
+      }
+      if (langfuseResult.config.xTitle) {
+        config.xTitle = String(langfuseResult.config.xTitle);
+      }
+
+      if (this.verbose) {
+        console.error(`[DEBUG] Using prompt from Langfuse (length: ${prompt.length} chars)`);
+        if (Object.keys(config).length > 0) {
+          console.error(`[DEBUG] Using config from Langfuse:`, config);
         }
       }
     } else {
-      if (this.verbose) {
-        console.error(`[DEBUG] Using default prompt (Langfuse not enabled)`);
-      }
+      throw new Error(
+        'Langfuse is required for release extraction. ' +
+        'Please configure Langfuse in your settings or enable it in your configuration.'
+      );
     }
 
     const formattedMessages = messages
@@ -264,21 +248,40 @@ export class ReleaseExtractor {
       }
       
       // Check if response looks like markdown instead of JSON
-      if (textContent.trim().startsWith('```') || textContent.includes('###')) {
-        console.error(`\n[ERROR] Langfuse prompt returned markdown instead of JSON.`);
-        console.error(`The prompt "release-extraction" in Langfuse must instruct the LLM to return a JSON array.`);
-        console.error(`Expected format: [{"date":"2024-01-15","title":"v2.1.0 Release","description":"...","sourceMessageId":"..."}]`);
-        console.error(`\nCurrent response format appears to be markdown changelog format.`);
-        console.error(`Please update your Langfuse prompt to explicitly request JSON output.\n`);
+      const isMarkdown = textContent.trim().startsWith('#') || 
+                         textContent.trim().startsWith('```') || 
+                         textContent.includes('###') ||
+                         textContent.includes('##');
+      
+      if (isMarkdown) {
+        const errorMessage = `Langfuse prompt "release-extraction" returned markdown instead of JSON.\n` +
+          `The prompt must instruct the LLM to return ONLY a JSON array with no markdown formatting.\n` +
+          `Expected format: [{"date":"2024-01-15","title":"v2.1.0 Release","description":"...","sourceMessageId":"..."}]\n` +
+          `Please update your Langfuse prompt to explicitly request JSON output only.\n` +
+          `See release-extraction-prompt.md for the correct prompt format.`;
+        
+        console.error(`\n[ERROR] ${errorMessage}`);
+        
+        if (generation) {
+          generation.end({
+            level: 'ERROR',
+            statusMessage: `Response is markdown, not JSON. Prompt needs to be updated.`,
+          });
+        }
+        
+        throw new Error(errorMessage);
       }
       
       if (generation) {
         generation.end({
           level: 'ERROR',
-          statusMessage: `Failed to parse JSON response: ${parseError instanceof Error ? parseError.message : String(parseError)}. Response appears to be markdown, not JSON.`,
+          statusMessage: `Failed to parse JSON response: ${parseError instanceof Error ? parseError.message : String(parseError)}`,
         });
       }
-      return [];
+      
+      throw new Error(
+        `Failed to parse JSON response from LLM: ${parseError instanceof Error ? parseError.message : String(parseError)}`
+      );
     }
   }
 }
