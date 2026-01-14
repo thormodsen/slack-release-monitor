@@ -93,7 +93,21 @@ export class ReleaseExtractor {
     const formattedMessages = messages
       .map((m) => {
         const date = new Date(parseFloat(m.timestamp) * 1000).toISOString().split('T')[0];
-        return `[${m.id}] [${date}] ${m.text}`;
+        let messageText = `[${m.id}] [${date}] ${m.text}`;
+        
+        // Add thread replies if present
+        if (m.threadReplies && m.threadReplies.length > 0) {
+          const threadText = m.threadReplies
+            .map((reply) => {
+              const replyDate = new Date(parseFloat(reply.timestamp) * 1000).toISOString().split('T')[0];
+              const replyAuthor = reply.username || `user-${reply.userId.substring(0, 8)}`;
+              return `  └─ [${reply.id}] [${replyDate}] @${replyAuthor}: ${reply.text}`;
+            })
+            .join('\n');
+          messageText += `\n  [Thread replies (${m.threadReplies.length}):]\n${threadText}`;
+        }
+        
+        return messageText;
       })
       .join('\n\n');
 

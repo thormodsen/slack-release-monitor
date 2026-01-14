@@ -9,6 +9,7 @@ export interface SlackMessage {
   appId?: string;
   botId?: string;
   subtype?: string;
+  threadReplies?: SlackMessage[];
 }
 
 export class SlackClient {
@@ -42,6 +43,58 @@ export class SlackClient {
       this.botInfoCache.set(botId, {});
     }
     return null;
+  }
+
+  private async fetchThreadReplies(channelId: string, threadTs: string): Promise<SlackMessage[]> {
+    const replies: SlackMessage[] = [];
+    let cursor: string | undefined;
+
+    do {
+      try {
+        const response = await this.client.conversations.replies({
+          channel: channelId,
+          ts: threadTs,
+          cursor,
+          limit: 100,
+        });
+
+        if (!response.ok) {
+          if (this.verbose) {
+            console.error(`[DEBUG] Failed to fetch thread replies for ${threadTs}: ${response.error}`);
+          }
+          break;
+        }
+
+        for (const msg of response.messages ?? []) {
+          // Skip the parent message (it has the same ts as thread_ts)
+          if (msg.ts === threadTs) {
+            continue;
+          }
+
+          if (msg.ts && msg.text) {
+            replies.push({
+              id: msg.ts,
+              text: msg.text,
+              timestamp: msg.ts,
+              userId: msg.user ?? '',
+              username: msg.username,
+              appId: msg.app_id,
+              botId: msg.bot_id,
+              subtype: msg.subtype,
+            });
+          }
+        }
+
+        cursor = response.response_metadata?.next_cursor;
+      } catch (error) {
+        if (this.verbose) {
+          console.error(`[DEBUG] Error fetching thread replies for ${threadTs}:`, error);
+        }
+        break;
+      }
+    } while (cursor);
+
+    return replies;
   }
 
   async fetchMessages(oldest?: number, latest?: number): Promise<SlackMessage[]> {
@@ -125,6 +178,18 @@ export class SlackClient {
             continue;
           }
 
+          // Fetch thread replies if this message has a thread
+          let threadReplies: SlackMessage[] | undefined;
+          if (msg.reply_count && msg.reply_count > 0) {
+            if (this.verbose) {
+              console.error(`[DEBUG] Fetching ${msg.reply_count} thread replies for message ${msg.ts}`);
+            }
+            threadReplies = await this.fetchThreadReplies(this.channelId, msg.ts);
+            if (this.verbose && threadReplies.length > 0) {
+              console.error(`[DEBUG] Fetched ${threadReplies.length} thread replies for message ${msg.ts}`);
+            }
+          }
+
           messages.push({
             id: msg.ts,
             text: msg.text,
@@ -134,6 +199,7 @@ export class SlackClient {
             appId: msg.app_id,
             botId: msg.bot_id,
             subtype: msg.subtype,
+            threadReplies,
           });
         }
       }
